@@ -14,14 +14,16 @@ class MemoryPlanner:
         #   self._replica.attention_head_dim
         #   self._replica.kv_heads_per_tensor_parallel_worker
         #   self._replica.max_request_tokens
-        raise NotImplementedError("Warmup: fill _get_kv_cache_memory_per_layer_per_request")
+        return (2 * 2 * self._replica.attention_head_dim 
+            * self._replica.kv_heads_per_tensor_parallel_worker
+            * self._replica.max_request_tokens)
 
         # END OF YOUR CODE
 
     def _get_parameter_memory_per_device(self) -> int:
         # [Warmup] TODO: model-parameter bytes on this device (fp16).
         # HINT: 2 * self._param_counter.get_num_parameters_per_device()
-        raise NotImplementedError("Warmup: fill _get_parameter_memory_per_device")
+        return 2 * self._param_counter.get_num_parameters_per_device()
 
         # END OF YOUR CODE
 
@@ -29,9 +31,7 @@ class MemoryPlanner:
         # [Warmup] TODO: KV-cache bytes for ONE request across ALL layers on
         # this device.
         # HINT: per-layer KV * self._replica.num_layers
-        raise NotImplementedError(
-            "Warmup: fill _get_kv_cache_memory_per_device_per_request"
-        )
+        return (self._get_kv_cache_memory_per_layer_per_request() * self._replica.num_layers)
 
         # END OF YOUR CODE
 
@@ -47,13 +47,21 @@ class MemoryPlanner:
         #   self._replica.memory_margin_fraction
         #   self._get_parameter_memory_per_device()
         #   self._get_kv_cache_memory_per_device_per_request()
-        raise NotImplementedError("Warmup: fill get_max_batch_size")
+        available = (self._replica.total_memory_gb * 1024**3
+            * (1 - self._replica.memory_margin_fraction))
+        
+        leftover = available - self._get_parameter_memory_per_device()
+
+        max_batch_size = int(leftover // self._get_kv_cache_memory_per_device_per_request())
+
+        assert (max_batch_size > 0), "Not enough memory for at least one request"
+        return max_batch_size
 
         # END OF YOUR CODE
 
     def get_max_request_slots(self) -> int:
         # [Warmup] TODO: how many request slots across the pipeline?
         # HINT: get_max_batch_size() * self._replica.num_pipeline_stages
-        raise NotImplementedError("Warmup: fill get_max_request_slots")
+        return self.get_max_batch_size() * self._replica.num_pipeline_stages
 
         # END OF YOUR CODE

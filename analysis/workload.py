@@ -81,7 +81,27 @@ def arrival_rates(df: pd.DataFrame, bin_s: float) -> pd.DataFrame:
     """
     # [Part 1] TODO: bin the arrivals and return the four columns above.
     # HINT: no Python loop needed; see np.bincount.
-    raise NotImplementedError("Part 1: fill arrival_rates")
+    times = df["arrived_at"].to_numpy()
+    num_bins = int(times.max() // bin_s) + 1
+
+    bins = (times // bin_s).astype(int)
+
+    counts = np.bincount(bins, minlength=num_bins)
+
+    prefill = df['num_prefill_tokens'].to_numpy()
+    decode = df["num_decode_tokens"].to_numpy()
+
+    p_count = np.bincount(bins, weights=prefill, minlength=num_bins)
+    d_count = np.bincount(bins, weights=decode, minlength=num_bins)
+
+    result = pd.DataFrame()
+    result['bin_start'] = np.arange(num_bins) * bin_s
+    result["req_per_s"] = counts / bin_s
+
+    result["prompt_tok_per_s"] = p_count / bin_s
+    result['output_tok_per_s'] = d_count / bin_s
+
+    return result
     # END OF YOUR CODE
 
 
@@ -109,7 +129,18 @@ def predict_queue_wait(
     Returns one wait in seconds per row of df, as a numpy array.
     """
     # [Part 1] TODO: apply the rule above to each request in order.
-    raise NotImplementedError("Part 1: fill predict_queue_wait")
+    arrived = df["arrived_at"].to_numpy(dtype=float)
+    prompt = df["num_prefill_tokens"].to_numpy(dtype=float)
+    output = df["num_decode_tokens"].to_numpy(dtype=float)
+    work = prompt / prefill_tok_per_s + output / decode_tok_per_s
+
+    waits = np.empty(len(df))
+    gpu_free_at = 0.0
+    for i in range(len(df)):
+        start = max(arrived[i], gpu_free_at)
+        waits[i] = start - arrived[i]
+        gpu_free_at = start + work[i]
+    return waits
     # END OF YOUR CODE
 
 
@@ -118,7 +149,7 @@ def kv_bytes_per_token() -> int:
     above (NUM_LAYERS, NUM_KV_HEADS, HEAD_DIM, BYTES_PER_VALUE).
     """
     # [Part 1] TODO: one key and one value vector per layer, per KV head.
-    raise NotImplementedError("Part 1: fill kv_bytes_per_token")
+    return 2 * NUM_LAYERS * NUM_KV_HEADS * HEAD_DIM * BYTES_PER_VALUE
     # END OF YOUR CODE
 
 
@@ -157,6 +188,21 @@ def kv_in_use(
     """
     # [Part 1] TODO: for each t, find the requests in the system, keep the
     # first max_batch_size of them, and sum their KV.
-    raise NotImplementedError("Part 1: fill kv_in_use")
+    arrived = df["arrived_at"].to_numpy(dtype=float)
+    prompt = df["num_prefill_tokens"].to_numpy(dtype=float)
+    output = df["num_decode_tokens"].to_numpy(dtype=float)
+    done = (arrived + np.asarray(waits, dtype=float) + prompt / prefill_tok_per_s
+        + decode_step_s * output)
+    
+    tokens = prompt + output
+    bytes_per_token = kv_bytes_per_token()
+
+    bin_starts = np.arange(int(arrived.max() // bin_s) + 1) * bin_s
+    running, kv_gib = [], []
+    for t in bin_starts:
+        in_system = np.flatnonzero((arrived <= t) & (t < done))[:max_batch_size]
+        running.append(len(in_system))
+        kv_gib.append(tokens[in_system].sum() * bytes_per_token / GIB)
+    return pd.DataFrame({"bin_start": bin_starts, "running": running, "kv_gib": kv_gib})
     # END OF YOUR CODE
 
