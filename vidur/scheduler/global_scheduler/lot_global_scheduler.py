@@ -31,6 +31,23 @@ class LOTGlobalScheduler(BaseGlobalScheduler):
         # [Part 5] TODO: sum each replica's outstanding work, then assign
         # every request in self._request_queue (pop from the front).
         # Replica ids: self._replica_schedulers.keys().
-        raise NotImplementedError("Part 5: fill LOT schedule")
+        loads = []
+        for replica_id in self._replica_schedulers:
+            tokens = sum(
+                r.total_tokens - r.num_processed_tokens
+                for r in self.outstanding_requests(replica_id)
+            )
+            loads.append([tokens, replica_id])
+        loads.sort()
+
+        while self._request_queue:
+            request = self._request_queue.pop(0)
+            request_mapping.append((loads[0][1], request))
+
+            loads[0][0] += request.total_tokens - request.num_processed_tokens
+            i = 0
+            while i + 1 < len(loads) and loads[i + 1] < loads[i]:
+                loads[i], loads[i + 1] = loads[i + 1], loads[i]
+                i += 1
         # END OF YOUR CODE
         return request_mapping

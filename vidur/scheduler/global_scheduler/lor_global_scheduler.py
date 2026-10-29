@@ -29,6 +29,19 @@ class LORGlobalScheduler(BaseGlobalScheduler):
         # [Part 5] TODO: count each replica's outstanding requests, then
         # assign every request in self._request_queue (pop from the front).
         # Replica ids: self._replica_schedulers.keys().
-        raise NotImplementedError("Part 5: fill LOR schedule")
+        loads = []
+        for replica_id in self._replica_schedulers:
+            loads.append([len(self.outstanding_requests(replica_id)), replica_id])
+        loads.sort()
+
+        while self._request_queue:
+            request = self._request_queue.pop(0)
+            request_mapping.append((loads[0][1], request))
+
+            loads[0][0] += 1
+            i = 0
+            while i + 1 < len(loads) and loads[i + 1] < loads[i]:
+                loads[i], loads[i + 1] = loads[i + 1], loads[i]
+                i += 1
         # END OF YOUR CODE
         return request_mapping
